@@ -1,23 +1,23 @@
-# MS-DOS Web Player (React + Vite, GitHub Pages Ready)
+# Retro WASM Deck – Emulator Hub (React + Vite)
 
-A retro-styled, client-side MS-DOS game runner built with React and Vite. Load your own `.zip` archive, boot it instantly in the browser via a WebAssembly-powered js-dos emulator, and deploy automatically to GitHub Pages on every push to `main`.
+Pick an emulator from the hub (MS-DOS ready; GBA/NES/SNES/PSX/N64 are WIP) and run everything client-side. Drop a `.zip` for DOS and boot instantly via the js-dos WebAssembly build. Styled with a CRT-inspired UI and ready for GitHub Pages.
 
 ## What’s inside
 
+- **Hub-first UX**: a landing grid lists emulators; add new ones by extending the `EMULATORS` array in `src/App.jsx`.
+- **MS-DOS emulator (ready)**: js-dos (WASM, CDN) with drag & drop ZIP loading, auto-start command detection (EXE/BAT/COM), Start/Reset, Big view overlay, and Fullscreen.
+- **Coming soon** placeholders: GBA, NES, SNES, PSX, N64 cards with WIP screens; swap in real components later.
 - **Zero backend**: everything runs locally in the browser; your files never leave your machine.
-- **js-dos (WASM)** from CDN for MS-DOS emulation.
-- **Drag & drop + file picker** for `.zip` game archives with auto-detected startup command.
-- **Start/Reset/Fullscreen controls**, startup command input (remembered via `localStorage`).
-- **Retro UI** with CRT-inspired display and console log.
-- **GitHub Actions** workflow to build with Vite and deploy the `dist/` output to GitHub Pages automatically.
+- **Retro UI**: CRT shell, console log, badges, and chips for view controls.
+- **GitHub Pages ready**: Vite build output in `dist/`; existing CI workflow can deploy it.
 
 ## Usage (deployed site)
 
-1. Open the GitHub Pages site.
-2. Click **“Load game (.zip)”** or drag & drop your MS-DOS game ZIP.
-3. The startup command auto-fills from the first executable found (EXE/BAT/COM); you can override it (e.g., `GAME.EXE`), default is `dir`.
-4. Click **Start** to launch the emulator.
-5. Use **Reset** (keeps the loaded ZIP in memory) or **Fullscreen** as needed.
+1. Open the site; you land on the hub.
+2. Click **MS-DOS** to launch the DOS player.
+3. Load a `.zip` via button or drag & drop. The startup command auto-fills from the first EXE/BAT/COM; override if needed (default `dir`).
+4. Hit **Start**. Use **Reset** to stop (ZIP stays in memory), **Big view** for the floating overlay, or **Fullscreen**.
+5. Use **← Back to hub** to return to the emulator list.
 
 > Everything stays local. The app never uploads your archives.
 
@@ -28,7 +28,7 @@ npm install
 npm run dev
 ```
 
-The dev server runs on Vite (typically `http://localhost:5173`). The emulator script is loaded via CDN.
+The dev server runs on Vite (typically `http://localhost:5173`). Emulator scripts load from CDN.
 
 ## Build
 
