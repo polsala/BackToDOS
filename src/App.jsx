@@ -414,9 +414,6 @@ function DosEmulator({ onBack }) {
           <p className="subtitle">Play your own MS-DOS games in-browser. No uploads, no backend.</p>
           <div className="hero-actions">
             <button className="ghost" onClick={handleBack}>← Back to hub</button>
-            <button className="ghost" onClick={() => setShowModal((v) => !v)}>
-              {showModal ? "Close big view" : "Big view"}
-            </button>
           </div>
         </div>
         <div className="hero-badge">
