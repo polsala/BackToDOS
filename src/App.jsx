@@ -3,6 +3,11 @@ import JSZip from "jszip";
 
 const WDOSBOX_URL = "https://js-dos.com/6.22/current/wdosbox.js";
 const STARTUP_KEY = "dos-startup-command";
+const getFullscreenElement = () =>
+  document.fullscreenElement ||
+  document.webkitFullscreenElement ||
+  document.msFullscreenElement ||
+  document.mozFullScreenElement;
 
 const EMULATORS = [
   {
@@ -164,9 +169,11 @@ function DosEmulator({ onBack }) {
   const [dragActive, setDragActive] = useState(false);
   const [booted, setBooted] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const bufferRef = useRef(null); // holds ArrayBuffer of loaded ZIP
   const dosRef = useRef(null); // js-dos instance
+  const shellRef = useRef(null);
   const containerRef = useRef(null);
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -177,28 +184,70 @@ function DosEmulator({ onBack }) {
     addLog("Ready. Drop a MS-DOS game ZIP or click Load.", "info");
   }, []);
 
-  const resizeCanvas = useCallback(() => {
-    if (!containerRef.current || !canvasRef.current) return;
-    const { clientWidth, clientHeight } = containerRef.current;
-    if (clientWidth === 0 || clientHeight === 0) return;
-    canvasRef.current.width = clientWidth;
-    canvasRef.current.height = clientHeight;
-  }, []);
+  const resizeDisplay = useCallback(
+    (opts = {}) => {
+      const container = containerRef.current;
+      const canvas = canvasRef.current;
+      if (!container || !canvas) return;
+      const { clientWidth, clientHeight } = container;
+      if (clientWidth === 0 || clientHeight === 0) return;
+
+      // Avoid resetting the WebGL context while running; only set canvas dimensions before boot
+      if (!booted || opts.forceCanvasResize) {
+        canvas.width = clientWidth;
+        canvas.height = clientHeight;
+      }
+
+      // Ensure all layers fill the container
+      const applySize = (el) => {
+        if (!el) return;
+        el.style.width = "100%";
+        el.style.height = "100%";
+      };
+
+      applySize(canvas);
+      const dosWrapper = container.querySelector(".dosbox-container");
+      applySize(dosWrapper);
+      applySize(dosWrapper?.querySelector("canvas"));
+    },
+    [booted]
+  );
 
   useEffect(() => {
-    resizeCanvas();
-    const observer = new ResizeObserver(resizeCanvas);
+    resizeDisplay({ forceCanvasResize: !booted });
+    const observer = new ResizeObserver(() => resizeDisplay());
     if (containerRef.current) observer.observe(containerRef.current);
-    window.addEventListener("resize", resizeCanvas);
+    if (shellRef.current) observer.observe(shellRef.current);
+    window.addEventListener("resize", resizeDisplay);
     return () => {
       observer.disconnect();
-      window.removeEventListener("resize", resizeCanvas);
+      window.removeEventListener("resize", resizeDisplay);
     };
-  }, [resizeCanvas]);
+  }, [resizeDisplay, booted]);
 
   useEffect(() => {
-    resizeCanvas();
-  }, [showModal, resizeCanvas]);
+    const raf = requestAnimationFrame(() => resizeDisplay());
+    const timeout = setTimeout(() => resizeDisplay(), 60);
+    return () => {
+      cancelAnimationFrame(raf);
+      clearTimeout(timeout);
+    };
+  }, [showModal, resizeDisplay]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      const target = shellRef.current;
+      const active = !!target && getFullscreenElement() === target;
+      setIsFullscreen(active);
+      requestAnimationFrame(() => resizeDisplay());
+    };
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+    };
+  }, [resizeDisplay]);
 
   const addLog = (message, type = "info") => {
     const entry = { message, type, time: new Date() };
@@ -318,7 +367,7 @@ function DosEmulator({ onBack }) {
     }
 
     // js-dos requires a <canvas>; ensure we clear previous pixels before reusing it
-    resizeCanvas();
+    resizeDisplay({ forceCanvasResize: true });
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
     if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -337,6 +386,9 @@ function DosEmulator({ onBack }) {
     }
     dosRef.current = null;
     setBooted(false);
+    if (document.fullscreenElement === shellRef.current || document.fullscreenElement === containerRef.current) {
+      document.exitFullscreen().catch(() => {});
+    }
 
     // Remove js-dos wrapper/overlay and clear the canvas
     const container = containerRef.current;
@@ -347,6 +399,8 @@ function DosEmulator({ onBack }) {
       if (!container.contains(canvas)) container.prepend(canvas);
       const ctx = canvas.getContext("2d");
       if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+      // Reset canvas sizing to match the container for the next boot
+      resizeDisplay({ forceCanvasResize: true });
     }
 
     if (message) addLog(message, "info");
@@ -357,6 +411,8 @@ function DosEmulator({ onBack }) {
       addLog("No game ZIP loaded. Load one before starting.", "error");
       return;
     }
+
+    resizeDisplay({ forceCanvasResize: true });
 
     const cmd = (command || "dir").trim();
     localStorage.setItem(STARTUP_KEY, cmd);
@@ -376,6 +432,7 @@ function DosEmulator({ onBack }) {
           })
           .then(() => {
             setBooted(true);
+            requestAnimationFrame(() => resizeDisplay());
             addLog(`Emulator started with command: ${cmd || "dir"}.`, "ok");
           })
           .finally(() => URL.revokeObjectURL(zipUrl));
@@ -388,14 +445,26 @@ function DosEmulator({ onBack }) {
   };
 
   const toggleFullscreen = () => {
-    const el = containerRef.current;
+    const el = shellRef.current || containerRef.current;
     if (!el) return;
-    const isFs = document.fullscreenElement === el || el.matches(":fullscreen");
+    const fsEl = getFullscreenElement();
+    const isFs = fsEl === el;
     if (isFs) {
-      document.exitFullscreen().catch((err) => addLog(`Could not exit fullscreen: ${err?.message || err}`, "error"));
-    } else {
-      el.requestFullscreen().catch((err) => addLog(`Fullscreen not available: ${err?.message || err}`, "error"));
+      (document.exitFullscreen || document.webkitExitFullscreen || (() => Promise.resolve()))().catch((err) =>
+        addLog(`Could not exit fullscreen: ${err?.message || err}`, "error")
+      );
+      return;
     }
+    const req =
+      el.requestFullscreen ||
+      el.webkitRequestFullscreen ||
+      el.mozRequestFullScreen ||
+      el.msRequestFullscreen;
+    if (!req) {
+      addLog("Fullscreen API not available in this browser.", "error");
+      return;
+    }
+    Promise.resolve(req.call(el)).catch((err) => addLog(`Fullscreen not available: ${err?.message || err}`, "error"));
   };
 
   const handleBack = () => {
@@ -455,9 +524,12 @@ function DosEmulator({ onBack }) {
               </div>
             </div>
           </div>
-          <div className={`crt-shell ${showModal ? "floating" : ""}`}>
+          <div className={`crt-shell ${showModal ? "floating" : ""} ${isFullscreen ? "fullscreen-mode" : ""}`} ref={shellRef}>
             <div className="crt-overlay" />
-            <div className={`crt-inner ${showModal ? "expanded" : ""}`} ref={containerRef}>
+            <div
+              className={`crt-inner ${showModal ? "expanded" : ""} ${isFullscreen ? "fullscreen-active" : ""}`}
+              ref={containerRef}
+            >
               <canvas ref={canvasRef} className="crt-canvas" />
               <div className={`crt-placeholder ${booted ? "hidden" : ""}`}>
                 <p>Load a game ZIP to boot MS-DOS</p>
