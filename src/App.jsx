@@ -170,6 +170,7 @@ function DosEmulator({ onBack }) {
   const [booted, setBooted] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [escLocked, setEscLocked] = useState(false);
 
   const bufferRef = useRef(null); // holds ArrayBuffer of loaded ZIP
   const dosRef = useRef(null); // js-dos instance
@@ -178,11 +179,19 @@ function DosEmulator({ onBack }) {
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
 
+  const addLog = useCallback((message, type = "info") => {
+    const entry = { message, type, time: new Date() };
+    setLogs((prev) => [entry, ...prev].slice(0, 120)); // keep log short
+  }, []);
+
+  const formatTime = (time) =>
+    time.toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
   useEffect(() => {
     const saved = localStorage.getItem(STARTUP_KEY);
     if (saved) setCommand(saved);
     addLog("Ready. Drop a MS-DOS game ZIP or click Load.", "info");
-  }, []);
+  }, [addLog]);
 
   const resizeDisplay = useCallback(
     (opts = {}) => {
@@ -213,6 +222,24 @@ function DosEmulator({ onBack }) {
     [booted]
   );
 
+  const lockEscapeKey = useCallback(() => {
+    if (!navigator.keyboard?.lock) {
+      setEscLocked(false);
+      return;
+    }
+    navigator.keyboard
+      .lock(["Escape"])
+      .then(() => setEscLocked(true))
+      .catch(() => setEscLocked(false));
+  }, []);
+
+  const unlockEscapeKey = useCallback(() => {
+    if (navigator.keyboard?.unlock) {
+      navigator.keyboard.unlock();
+    }
+    setEscLocked(false);
+  }, []);
+
   useEffect(() => {
     resizeDisplay({ forceCanvasResize: !booted });
     const observer = new ResizeObserver(() => resizeDisplay());
@@ -240,6 +267,11 @@ function DosEmulator({ onBack }) {
       const active = !!target && getFullscreenElement() === target;
       setIsFullscreen(active);
       requestAnimationFrame(() => resizeDisplay());
+      if (active) {
+        lockEscapeKey();
+      } else {
+        unlockEscapeKey();
+      }
     };
     document.addEventListener("fullscreenchange", handleFullscreenChange);
     document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
@@ -247,15 +279,28 @@ function DosEmulator({ onBack }) {
       document.removeEventListener("fullscreenchange", handleFullscreenChange);
       document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
     };
-  }, [resizeDisplay]);
+  }, [resizeDisplay, lockEscapeKey, unlockEscapeKey]);
 
-  const addLog = (message, type = "info") => {
-    const entry = { message, type, time: new Date() };
-    setLogs((prev) => [entry, ...prev].slice(0, 120)); // keep log short
-  };
+  useEffect(() => {
+    const handleEscapeOverride = (e) => {
+      if (e.key === "Escape" && e.shiftKey) {
+        e.preventDefault();
+        e.stopPropagation();
+        const exit =
+          document.exitFullscreen ||
+          document.webkitExitFullscreen ||
+          document.mozCancelFullScreen ||
+          document.msExitFullscreen;
+        if (exit) exit.call(document);
+        unlockEscapeKey();
+        setShowModal(false);
+      }
+    };
+    window.addEventListener("keydown", handleEscapeOverride, true);
+    return () => window.removeEventListener("keydown", handleEscapeOverride, true);
+  }, [unlockEscapeKey]);
 
-  const formatTime = (time) =>
-    time.toLocaleTimeString([], { hour12: false, hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  useEffect(() => () => unlockEscapeKey(), [unlockEscapeKey]);
 
   const validateFile = (file) => {
     if (!file) return false;
@@ -464,7 +509,9 @@ function DosEmulator({ onBack }) {
       addLog("Fullscreen API not available in this browser.", "error");
       return;
     }
-    Promise.resolve(req.call(el)).catch((err) => addLog(`Fullscreen not available: ${err?.message || err}`, "error"));
+    Promise.resolve(req.call(el))
+      .then(() => lockEscapeKey())
+      .catch((err) => addLog(`Fullscreen not available: ${err?.message || err}`, "error"));
   };
 
   const handleBack = () => {
@@ -517,6 +564,9 @@ function DosEmulator({ onBack }) {
                   </svg>
                   <span>Fullscreen</span>
                 </button>
+              </div>
+              <div className="esc-hint" aria-live="polite">
+                Esc goes to the game. Use Shift+Esc to exit view.
               </div>
               <div className="mini-leds">
                 <span className="led green" />
